@@ -1,0 +1,8 @@
+﻿FindResourceEx
+FreeLibrary
+FreeResource
+LoadLibrary
+LoadResource
+LoadString
+LockResource
+RT_STRING
