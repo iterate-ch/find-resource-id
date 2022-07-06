@@ -1,7 +1,8 @@
 ﻿// Copyright (c) iterate GmbH.
 // Licensed under Apache License, Version 2.0.
 
-using Microsoft.Windows.Sdk;
+using Windows.Win32;
+using Windows.Win32.Foundation;
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
@@ -11,29 +12,26 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using static Microsoft.Windows.Sdk.Constants;
-using static Microsoft.Windows.Sdk.PInvoke;
+using static Windows.Win32.PInvoke;
 
 RootCommand app;
 
 unsafe static void FindHandler(FileInfo resourceDll, string[] text)
 {
-    using var library = new FreeLibrarySafeHandle(LoadLibrary(resourceDll.Name));
+    using var library = LoadLibrary(resourceDll.Name);
 
     var langId = (ushort)CultureInfo.CurrentUICulture.LCID;
 
-    char* localRT_STRING = (char*)RT_STRING;
     var result = Enumerable.Range(0, ushort.MaxValue + 1).Select<int, (int, Exception, string)>(x =>
     {
         var id = x / 16 + 1;
-        var localId = (char*)id;
-        var hrsrc = FindResourceEx(library.DangerousGetHandle(), localRT_STRING, localId, langId);
-        if (hrsrc == 0)
+        var hrsrc = FindResourceEx((HINSTANCE)(library.DangerousGetHandle()), RT_STRING, MAKEINTRESOURCE(id), langId);
+        if (hrsrc.Value == 0)
         {
             return (x, Marshal.GetExceptionForHR(Marshal.GetHRForLastWin32Error()), default);
         }
 
-        var hglob = LoadResource(library.DangerousGetHandle(), hrsrc);
+        var hglob = LoadResource(library, hrsrc);
         if (hglob == 0)
         {
             return (x, Marshal.GetExceptionForHR(Marshal.GetHRForLastWin32Error()), default);
@@ -67,7 +65,7 @@ unsafe static void FindHandler(FileInfo resourceDll, string[] text)
 
 unsafe static void ResolveHandler(FileInfo resourceDll, uint[] resourceId)
 {
-    using var library = new FreeLibrarySafeHandle(LoadLibrary(resourceDll.Name));
+    using var library = LoadLibrary(resourceDll.Name);
     foreach (var id in resourceId)
     {
         char* buffer = default;
@@ -87,20 +85,21 @@ unsafe static void ResolveHandler(FileInfo resourceDll, uint[] resourceId)
     }
 }
 
-app = new RootCommand()
-{
-    new Argument<FileInfo>("resourceDll"),
-    new Command("find")
-    {
-        new Argument<string[]>("text")
-    }.Configure(x => x.Handler = CommandHandler.Create<FileInfo, string[]>(FindHandler)),
-    new Command("resolve")
-    {
-        new Argument<uint[]>("resourceId")
-    }.Configure(x => x.Handler = CommandHandler.Create<FileInfo, uint[]>(ResolveHandler))
-};
+app = new();
+Argument<FileInfo> resourceDllArgument = new("resourceDll");
+app.Add(resourceDllArgument);
+Command findCommand = new Command("find");
+app.Add(findCommand);
+Argument<string[]> textOption = new("text");
+findCommand.Add(textOption);
+findCommand.SetHandler(FindHandler, resourceDllArgument, textOption);
+Command resolveCommand = new("resolve");
+app.Add(resolveCommand);
+Argument<uint[]> resourceIdsArgument = new("resourceId");
+resolveCommand.Add(resourceIdsArgument);
+resolveCommand.SetHandler(ResolveHandler, resourceDllArgument, resourceIdsArgument);
 
-return await app.InvokeAsync(Environment.CommandLine);
+return app.Invoke(args);
 
 internal static class Extensions
 {
